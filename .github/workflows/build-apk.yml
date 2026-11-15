@@ -1,1 +1,236 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      APP_URL: https://cute-buttercream-50f38f.netlify.app/
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create Android project
+        run: |
+          mkdir -p "$(dirname 'settings.gradle')"
+          cat > 'settings.gradle' <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = 'MonopostoLab'
+          include ':app'
+          EOF
+          mkdir -p "$(dirname 'build.gradle')"
+          cat > 'build.gradle' <<'EOF'
+          plugins { id 'com.android.application' version '8.5.2' apply false }
+          EOF
+          mkdir -p "$(dirname 'gradle.properties')"
+          cat > 'gradle.properties' <<'EOF'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=false
+          EOF
+          mkdir -p "$(dirname 'app/build.gradle')"
+          cat > 'app/build.gradle' <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.monopostolab.app'
+            compileSdk 34
+            defaultConfig { applicationId 'com.monopostolab.app'; minSdk 24; targetSdk 34; versionCode 1; versionName '1.0' }
+            compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+          }
+          EOF
+          mkdir -p "$(dirname 'app/src/main/AndroidManifest.xml')"
+          cat > 'app/src/main/AndroidManifest.xml' <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="MonopostoLab" android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme" android:allowBackup="true" android:hardwareAccelerated="true">
+              <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout|uiMode">
+                <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+          mkdir -p "$(dirname 'app/src/main/res/values/styles.xml')"
+          cat > 'app/src/main/res/values/styles.xml' <<'EOF'
+          <resources>
+            <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar">
+              <item name="android:windowBackground">#0C0C0F</item>
+              <item name="android:statusBarColor">#0C0C0F</item>
+              <item name="android:navigationBarColor">#0C0C0F</item>
+            </style>
+          </resources>
+          EOF
+          mkdir -p "$(dirname 'app/src/main/res/drawable/ic_launcher.xml')"
+          cat > 'app/src/main/res/drawable/ic_launcher.xml' <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#0C0C0F" android:pathData="M0,0h108v108h-108z"/>
+            <path android:fillColor="#E10600" android:pathData="M38,32H94L80,66H24Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M29,32H34L20,66H15Z"/>
+            <path android:fillColor="#FFFFFF" android:pathData="M20,72H82V78H20Z"/>
+            <path android:fillColor="#E10600" android:pathData="M20,72h7v6h-7zM34,72h7v6h-7zM48,72h7v6h-7zM62,72h7v6h-7z"/>
+          </vector>
+          EOF
+          mkdir -p "$(dirname 'app/src/main/java/com/monopostolab/app/MainActivity.java')"
+          cat > 'app/src/main/java/com/monopostolab/app/MainActivity.java' <<'EOF'
+          package com.monopostolab.app;
 
+          import android.app.Activity;
+          import android.content.ContentValues;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.util.Base64;
+          import android.view.View;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.URLUtil;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.OutputStream;
+          import org.json.JSONObject;
+
+          public class MainActivity extends Activity {
+              static final String APP_URL = "__APP_URL__";
+              static final int REQ_FILE = 1;
+              WebView web;
+              ValueCallback<Uri[]> fileCb;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  web = new WebView(this);
+                  web.setBackgroundColor(0xFF0C0C0F);
+                  web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                  setContentView(web);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  web.addJavascriptInterface(new Bridge(), "AndroidBridge");
+                  final String host = Uri.parse(APP_URL).getHost();
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          Uri u = r.getUrl();
+                          if (u.getHost() != null && u.getHost().equals(host)) return false;
+                          try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { }
+                          return true;
+                      }
+                  });
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                          if (fileCb != null) fileCb.onReceiveValue(null);
+                          fileCb = cb;
+                          try {
+                              startActivityForResult(p.createIntent(), REQ_FILE);
+                          } catch (Exception e) {
+                              fileCb = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+                  web.setDownloadListener((url, ua, cd, mime, len) -> {
+                      String name = URLUtil.guessFileName(url, cd, mime);
+                      if (url.startsWith("blob:")) {
+                          String js = "(function(){var x=new XMLHttpRequest();x.open('GET'," + JSONObject.quote(url)
+                              + ",true);x.responseType='blob';x.onload=function(){var r=new FileReader();r.onloadend=function(){AndroidBridge.save(r.result,"
+                              + JSONObject.quote(mime) + "," + JSONObject.quote(name) + ")};r.readAsDataURL(x.response)};x.send()})();";
+                          web.evaluateJavascript(js, null);
+                      } else if (url.startsWith("data:")) {
+                          saveFile(url, name);
+                      } else {
+                          try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception e) { }
+                      }
+                  });
+                  if (b == null) web.loadUrl(APP_URL); else web.restoreState(b);
+              }
+
+              void saveFile(String dataUrl, String name) {
+                  try {
+                      byte[] data = Base64.decode(dataUrl.substring(dataUrl.indexOf(',') + 1), Base64.DEFAULT);
+                      String where;
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          ContentValues v = new ContentValues();
+                          v.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                          v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                          Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                          OutputStream o = getContentResolver().openOutputStream(uri);
+                          o.write(data);
+                          o.close();
+                          where = "folder Download";
+                      } else {
+                          File f = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name);
+                          FileOutputStream o = new FileOutputStream(f);
+                          o.write(data);
+                          o.close();
+                          where = f.getParent();
+                      }
+                      toast("Tersimpan di " + where + ": " + name);
+                  } catch (Exception e) {
+                      toast("Gagal menyimpan file: " + e.getMessage());
+                  }
+              }
+
+              void toast(final String m) {
+                  runOnUiThread(() -> Toast.makeText(MainActivity.this, m, Toast.LENGTH_LONG).show());
+              }
+
+              class Bridge {
+                  @JavascriptInterface
+                  public void save(String dataUrl, String mime, String name) { saveFile(dataUrl, name); }
+              }
+
+              @Override
+              protected void onActivityResult(int rc, int res, Intent data) {
+                  if (rc == REQ_FILE && fileCb != null) {
+                      fileCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
+                      fileCb = null;
+                      return;
+                  }
+                  super.onActivityResult(rc, res, data);
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle o) { super.onSaveInstanceState(o); web.saveState(o); }
+
+              @Override
+              public void onBackPressed() {
+                  if (web.canGoBack()) web.goBack(); else super.onBackPressed();
+              }
+
+              @Override protected void onPause() { super.onPause(); web.onPause(); }
+              @Override protected void onResume() { super.onResume(); web.onResume(); }
+          }
+          EOF
+          sed -i "s#__APP_URL__#${APP_URL}#" app/src/main/java/com/monopostolab/app/MainActivity.java
+
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Build APK
+        run: |
+          gradle assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk MonopostoLab.apk
+      - name: Publish APK to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: MonopostoLab APK #${{ github.run_number }}
+          files: MonopostoLab.apk
